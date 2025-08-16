@@ -46,10 +46,17 @@ void rk_led_off(void);
 void rk_led_toggle(void);
 
 /**
- * @brief Rozpoczęcie mrugania LED
+ * @brief Rozpoczęcie symetrycznego mrugania LED
  * @param period_ms Okres mrugania w milisekundach
  */
 void rk_led_blink_start(uint32_t period_ms);
+
+/**
+ * @brief Rozpoczęcie asymetrycznego mrugania LED
+ * @param on_time_ms Czas świecenia w milisekundach
+ * @param off_time_ms Czas wyłączenia w milisekundach
+ */
+void rk_led_blink_asymmetric_start(uint32_t on_time_ms, uint32_t off_time_ms);
 
 /**
  * @brief Zatrzymanie mrugania LED

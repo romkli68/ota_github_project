@@ -13,19 +13,30 @@
 static const char *TAG = "MAIN";
 
 // Konfiguracja WiFi - zmień na swoje dane
-#define WIFI_SSID "vodafoneBD2484"
-#define WIFI_PASS "Drogocenna10"
+#define WIFI_SSID       "vodafoneBD2484"
+#define WIFI_PASS       "Drogocenna10"
 
 // Konfiguracja GitHub OTA - zmień na swoje repozytorium
-#define GITHUB_USER "romkli68"
-#define GITHUB_REPO "OTA_GITHUB_PROJECT"
-#define GITHUB_FILE "firmware.bin"
-#define GITHUB_BRANCH "main"
+#define GITHUB_USER     "romkli68"
+#define GITHUB_REPO     "ota_github_project"
+#define GITHUB_FILE     "firmware.bin"
+#define GITHUB_BRANCH   "main"
+
+// Parametry mrugania LED - zmień te wartości dla testowania OTA!
+#define LED_ON_TIME_MS  900   // Czas świecenia - ZMIEŃ TO!
+#define LED_OFF_TIME_MS 100   // Czas wyłączenia - ZMIEŃ TO!
 
 void app_main(void)
 {
     ESP_LOGI(TAG, "Uruchamianie aplikacji OTA GitHub");
+    ESP_LOGI(TAG, "Wersja firmware: %s", rk_ota_get_version());
+    ESP_LOGI(TAG, "Parametry LED: ON=%d ms, OFF=%d ms", LED_ON_TIME_MS, LED_OFF_TIME_MS);
     
+    // Sprawdź czy dane WiFi są ustawione
+    if (strlen(WIFI_SSID) == 0 || strcmp(WIFI_SSID, "TwojeWiFi") == 0) {
+        ESP_LOGE(TAG, "UWAGA: Nie ustawiono prawidłowych danych WiFi!");
+        ESP_LOGE(TAG, "Zmień WIFI_SSID i WIFI_PASS w main.c");
+    }
     // Inicjalizacja NVS
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -50,12 +61,14 @@ void app_main(void)
     
     // Połączenie z WiFi
     ESP_LOGI(TAG, "Łączenie z WiFi...");
-    rk_led_blink_start(500); // Mruganie podczas łączenia
+    rk_led_blink_start(500); // Symetryczne mruganie podczas łączenia
     
     if (rk_wifi_connect(WIFI_SSID, WIFI_PASS) == ESP_OK) {
         ESP_LOGI(TAG, "Połączono z WiFi");
         rk_led_blink_stop();
-        rk_led_on(); // Stałe świecenie po połączeniu
+        
+        // ASYMETRYCZNE MRUGANIE PO POŁĄCZENIU Z WIFI
+        rk_led_blink_asymmetric_start(LED_ON_TIME_MS, LED_OFF_TIME_MS);
         
         // Sprawdzenie aktualizacji OTA
         ESP_LOGI(TAG, "Sprawdzanie aktualizacji OTA...");
@@ -71,13 +84,14 @@ void app_main(void)
     } else {
         ESP_LOGE(TAG, "Nie udało się połączyć z WiFi");
         rk_led_blink_stop();
-        // Szybkie mruganie w przypadku błędu
+        // Bardzo szybkie mruganie w przypadku błędu
         rk_led_blink_start(100);
     }
     
     // Główna pętla aplikacji
     while(1) {
-        ESP_LOGI(TAG, "Aplikacja działa...");
+        ESP_LOGI(TAG, "Aplikacja działa... LED: ON=%dms, OFF=%dms", 
+                 LED_ON_TIME_MS, LED_OFF_TIME_MS);
         vTaskDelay(pdMS_TO_TICKS(10000)); // 10 sekund
         
         // Można tutaj dodać sprawdzanie OTA co jakiś czas
