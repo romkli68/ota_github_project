@@ -11,6 +11,16 @@
 
 static const char *TAG = "RK_OTA";
 
+// ===== KONFIGURACJA GITHUB TOKEN =====
+// ZMIEŃ NA SWÓJ PERSONAL ACCESS TOKEN!
+#define GITHUB_TOKEN "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"
+// Jak utworzyć token:
+// 1. Idź do: https://github.com/settings/tokens
+// 2. Kliknij "Generate new token (classic)"
+// 3. Zaznacz scope: "repo" (pełny dostęp do prywatnych repo)
+// 4. Skopiuj token i wklej powyżej
+// =====================================
+
 // Zmienne globalne
 static QueueHandle_t ota_queue = NULL;
 static TaskHandle_t ota_task_handle = NULL;
@@ -135,6 +145,16 @@ static void ota_task(void *pvParameters)
 esp_err_t rk_ota_init(void)
 {
     ESP_LOGI(TAG, "Inicjalizacja komponentu OTA");
+    
+    // Sprawdź czy token jest ustawiony
+    if (strlen(GITHUB_TOKEN) == 0 || strcmp(GITHUB_TOKEN, "ghp_TWÓJ_TOKEN_TUTAJ") == 0) {
+        ESP_LOGW(TAG, "UWAGA: GitHub token nie jest ustawiony!");
+        ESP_LOGW(TAG, "Dla prywatnych repo ustaw GITHUB_TOKEN w rk_ota.c");
+        ESP_LOGW(TAG, "Lub zmień repo na publiczne");
+    } else {
+        ESP_LOGI(TAG, "GitHub token skonfigurowany (długość: %d)", strlen(GITHUB_TOKEN));
+    }
+    
     return ESP_OK;
 }
 
@@ -181,16 +201,33 @@ esp_err_t rk_ota_check_update(const rk_ota_config_t *config)
     
     // Budowanie URL do firmware
     char firmware_url[512];
-    snprintf(firmware_url, sizeof(firmware_url),
-             "https://github.com/%s/%s/raw/%s/%s",
-             config->github_user,
-             config->github_repo,
-             config->github_branch,
-             config->firmware_file);
+    
+    // Sprawdź czy mamy token - jeśli tak, użyj go
+    bool use_token = (strlen(GITHUB_TOKEN) > 0 && strcmp(GITHUB_TOKEN, "ghp_TWÓJ_TOKEN_TUTAJ") != 0);
+    
+    if (use_token) {
+        // Dla prywatnych repo z tokenem
+        snprintf(firmware_url, sizeof(firmware_url),
+                 "https://raw.githubusercontent.com/%s/%s/%s/%s",
+                 config->github_user,
+                 config->github_repo,
+                 config->github_branch,
+                 config->firmware_file);
+        ESP_LOGI(TAG, "Używam tokenu GitHub dla prywatnego repo");
+    } else {
+        // Dla publicznych repo bez tokenu
+        snprintf(firmware_url, sizeof(firmware_url),
+                 "https://github.com/%s/%s/raw/%s/%s",
+                 config->github_user,
+                 config->github_repo,
+                 config->github_branch,
+                 config->firmware_file);
+        ESP_LOGI(TAG, "Używam publicznego dostępu (bez tokenu)");
+    }
     
     ESP_LOGI(TAG, "URL firmware: %s", firmware_url);
     
-    // Konfiguracja HTTP z wyłączoną weryfikacją SSL (dla testów)
+    // Konfiguracja HTTP
     esp_http_client_config_t http_config = {
         .url = firmware_url,
         .event_handler = _http_event_handler,
@@ -199,6 +236,24 @@ esp_err_t rk_ota_check_update(const rk_ota_config_t *config)
         .skip_cert_common_name_check = true,    // Pomiń weryfikację nazwy
         .crt_bundle_attach = esp_crt_bundle_attach, // Użyj wbudowanych certyfikatów
     };
+    
+    // Utwórz klienta HTTP
+    esp_http_client_handle_t client = esp_http_client_init(&http_config);
+    if (client == NULL) {
+        ESP_LOGE(TAG, "Nie można utworzyć klienta HTTP");
+        return ESP_ERR_NO_MEM;
+    }
+    
+    // Dodaj token do nagłówka jeśli dostępny
+    if (use_token) {
+        char auth_header[256];
+        snprintf(auth_header, sizeof(auth_header), "token %s", GITHUB_TOKEN);
+        esp_http_client_set_header(client, "Authorization", auth_header);
+        ESP_LOGI(TAG, "Dodano nagłówek Authorization");
+    }
+    
+    // Dodaj User-Agent (GitHub tego wymaga)
+    esp_http_client_set_header(client, "User-Agent", "ESP32-OTA-Client/1.0");
     
     esp_https_ota_config_t ota_config = {
         .http_config = &http_config,
@@ -213,12 +268,49 @@ esp_err_t rk_ota_check_update(const rk_ota_config_t *config)
     const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
     if (update_partition == NULL) {
         ESP_LOGE(TAG, "Brak dostępnej partycji OTA");
+        esp_http_client_cleanup(client);
         return ESP_ERR_NOT_FOUND;
     }
     
     ESP_LOGI(TAG, "Partycja OTA: %s, rozmiar: %lu bytes", 
              update_partition->label, update_partition->size);
     
+    // Najpierw sprawdź czy plik istnieje
+    esp_err_t err = esp_http_client_open(client, 0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Nie można otworzyć połączenia HTTP: %s", esp_err_to_name(err));
+        esp_http_client_cleanup(client);
+        return err;
+    }
+    
+    int content_length = esp_http_client_fetch_headers(client);
+    int status_code = esp_http_client_get_status_code(client);
+    
+    ESP_LOGI(TAG, "Status HTTP: %d, Content-Length: %d", status_code, content_length);
+    
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    
+    if (status_code == 404) {
+        ESP_LOGE(TAG, "Plik firmware.bin nie został znaleziony (404)");
+        ESP_LOGE(TAG, "Sprawdź czy plik istnieje w repo: %s", firmware_url);
+        return ESP_ERR_NOT_FOUND;
+    } else if (status_code == 401 || status_code == 403) {
+        ESP_LOGE(TAG, "Brak autoryzacji (%d) - sprawdź token GitHub", status_code);
+        return ESP_ERR_INVALID_ARG;
+    } else if (status_code != 200) {
+        ESP_LOGE(TAG, "Nieoczekiwany kod HTTP: %d", status_code);
+        return ESP_FAIL;
+    }
+    
+    if (content_length <= 0) {
+        ESP_LOGE(TAG, "Nieprawidłowy rozmiar pliku: %d", content_length);
+        return ESP_ERR_INVALID_SIZE;
+    }
+    
+    ESP_LOGI(TAG, "Plik firmware znaleziony, rozmiar: %d bajtów", content_length);
+    
+    // Teraz wykonaj właściwe OTA
     esp_err_t ret = esp_https_ota(&ota_config);
     
     if (ret == ESP_OK) {
