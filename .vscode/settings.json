@@ -3,7 +3,7 @@
   "idf.espIdfPath": "/home/romkli/esp/v5.5/esp-idf",
   "idf.pythonInstallPath": "/usr/bin/python",
   "idf.openOcdConfigs": [
-    "board/esp32-wrover-kit-3.3v.cfg"
+    "board/esp32c6-ftdi.cfg"
   ],
   "idf.port": "/dev/ttyUSB0",
   "idf.toolsPath": "/home/romkli/.espressif",
@@ -14,7 +14,7 @@
   "clangd.arguments": [
     "--background-index",
     "--query-driver=/home/romkli/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/xtensa-esp32-elf-gcc",
-    "--compile-commands-dir=${workspaceFolder}/build"
+    "--compile-commands-dir=/home/romkli/Dokumenty/GitHub/ota_github_project/build"
   ],
   "idf.flashType": "UART"
 }
